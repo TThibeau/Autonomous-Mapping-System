@@ -1,0 +1,83 @@
+<launch>
+    <arg name="x_pos" default="0"/>
+    <arg name="y_pos" default="0"/>
+    <arg name="z_pos" default="0.0"/>
+    <arg name="multi_robot_name" default=""/>
+    <arg name="world_name" default="hospital"/>
+
+    <!-- Simulation environment in gazebo -->
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+        <!--                <arg name="world_name" value="$(find ams_configuration)/worlds/aws_hospital.world"/>  &lt;!&ndash; x = 5, y=5 &ndash;&gt;-->
+        <!--        <arg name="world_name" value="$(find dynamic_logistics_warehouse)/worlds/warehouse.world"/> &lt;!&ndash; REQUIRES gpu=true in velodyne plugin !&ndash;&gt;-->
+        <arg name="world_name" value="$(find aws_robomaker_small_house_world)/worlds/small_house.world"/>
+        <arg name="paused" value="true"/>
+        <arg name="use_sim_time" value="true"/>
+        <arg name="gui" value="true"/>
+        <arg name="headless" value="false"/>
+        <arg name="debug" value="false"/>
+        <arg name="verbose" default="true"/>
+    </include>
+
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder $(find ams_configuration)/robot/ams_robot.urdf.xacro"/>
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_robot"
+          args="-urdf -model tib_bot -x $(arg x_pos) -y $(arg y_pos) -z $(arg z_pos) -param /robot_description"/>
+
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher">
+        <param name="publish_frequency" type="double" value="10.0"/>
+        <param name="tf_prefix" value="$(arg multi_robot_name)"/>
+    </node>
+
+    <!-- Initial tf publisher -->
+    <param name="x_init" type="double" value="$(arg x_pos)"/>
+    <param name="y_init" type="double" value="$(arg y_pos)"/>
+    <param name="z_init" type="double" value="$(arg z_pos)"/>
+    <node pkg="init_tf_publisher" type="init_tf_publisher" name="init_tf_publisher"/>
+
+    <!-- Load RVIZ for visualization -->
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find ams_configuration)/rviz/AMS_visualization.rviz"/>
+
+    <!-- LIO-SAM -->
+    <arg name="project" default="lio_sam"/>
+    <rosparam file="$(find ams_configuration)/module_configs/lio_sam_config/params.yaml" command="load"/>
+    <include file="$(find lio_sam)/launch/include/module_loam.launch"/>
+
+    <!-- move_base prerequisite: Convert way_point output to PoseStamped format -->
+    <include file="$(find point_to_pose)/launch/point_to_pose.launch"/>
+
+    <!-- move_base prerequisite: Expects PointCloud format instead of PointCloud2 -->
+    <node pkg="point_cloud_converter" name="point_cloud_converter" type="point_cloud_converter_node">
+        <remap from="points2_in" to="velodyne_points_corrected"/>
+        <remap from="points_out" to="velodyne_points_corrected_converted"/>
+    </node>
+
+    <!-- Integration fix -->
+    <include file="$(find odometry_offset_fixer)/launch/odometry_offset_fixer.launch"/>
+    <node pkg="body_corrected_publisher" type="body_corrected_publisher" name="body_corrected_publisher"
+          output="screen"/>
+
+    <!-- move_base -->
+    <include file="$(find ams_configuration)/module_configs/move_base_config/launch/move_base_integrated_fixed.launch">
+        <arg name="odom_topic" default="lio_sam/mapping/odometry"/>
+        <arg name="move_forward_only" value="false"/>
+    </include>
+
+    <!-- TARE prerequisite: State estimator interface-->
+    <include file="$(find loam_interface)/launch/loam_interface_integrated.launch"/>
+
+    <!-- TARE -->
+    <include file="$(find sensor_scan_generation)/launch/sensor_scan_generation.launch"/>
+    <include file="$(find terrain_analysis)/launch/terrain_analysis.launch"/>
+    <include file="$(find terrain_analysis_ext)/launch/terrain_analysis_ext.launch">
+        <arg name="checkTerrainConn" value="false"/>
+    </include>
+    <include file="$(find ams_configuration)/module_configs/tare_launch/explore_ams_indoor.launch"/>
+
+    <!-- Measurement packages for testing -->
+    <include file="$(find visualization_tools)/launch/visualization_tools_integrated.launch">
+        <arg name="world_name" value="$(arg world_name)"/>
+    </include>
+    <node pkg="obstacle_distance_measurement" type="obstacle_distance_measurement" name="obstacle_distance_measurement"
+          output="screen"/>
+
+</launch>
