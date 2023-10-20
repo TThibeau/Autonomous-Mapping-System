@@ -123,7 +123,7 @@ Install ROS Noetic: [ROS Noetic installation wiki](https://wiki.ros.org/noetic/I
 ### Clone and build this workspace
 
   ```sh
-  git clone ???
+  git clone https://github.com/TThibeau/Autonomous-Mapping-System
   cd ~/ams_ws
   source devel/setup.sh
   catkin_make
